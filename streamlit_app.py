@@ -15,7 +15,7 @@ st.set_page_config(
 
 st.title("Sandy’s Law: Z–Σ Control Map Explorer")
 st.caption(
-    "A control-space diagnostic for stability and failure based on the "
+    "A control-space diagnostic and early-warning framework based on the "
     "Law of Environment-Dependent Evolution."
 )
 
@@ -45,110 +45,67 @@ use_manual = st.sidebar.checkbox(
 )
 
 # =========================================================
-# Sandy’s Law core quantity (manual mode)
+# Sandy Square definition (global)
+# =========================================================
+Z_min, Z_max = 0.30, 0.90
+Sigma_min, Sigma_max = 0.15, 0.85
+
+# =========================================================
+# Manual diagnostics
 # =========================================================
 G_manual = (1 - Z_manual) * Sigma_manual
 
-# =========================================================
-# Diagnostics panel (manual)
-# =========================================================
 st.subheader("Current System State (Manual Mode)")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    st.metric("Trap Strength Z", f"{Z_manual:.2f}")
-with col2:
-    st.metric("Entropy Export Σ", f"{Sigma_manual:.2f}")
-with col3:
-    st.metric("Gate Product (1 − Z)Σ", f"{G_manual:.4f}")
-
-if Z_manual < 0.3:
-    phase = "Dead Zone"
-    message = "Low confinement. Energy escapes freely. No sustained structure."
-elif Z_manual > 0.7 and Sigma_manual < 0.15:
-    phase = "Danger Zone (Phase III Risk)"
-    message = "High confinement with insufficient entropy export. Stress accumulation likely."
-else:
-    phase = "Safe Zone (Phase II – False Freedom)"
-    message = "High confinement with controlled entropy flow. Stable operation without stress buildup."
-
-st.markdown(f"**Current Phase:** `{phase}`")
-st.write(message)
+c1, c2, c3 = st.columns(3)
+c1.metric("Z", f"{Z_manual:.2f}")
+c2.metric("Σ", f"{Sigma_manual:.2f}")
+c3.metric("Gate Product", f"{G_manual:.4f}")
 
 # =========================================================
-# Z–Σ Operating Map (with Sandy Square)
+# Z–Σ Operating Map (Manual)
 # =========================================================
 st.subheader("Z–Σ Operating Map")
 
 fig, ax = plt.subplots(figsize=(8, 6))
 
-# Background zones
-ax.axvspan(0.0, 0.3, alpha=0.08)
-ax.axvspan(0.7, 1.0, ymin=0.0, ymax=0.25, alpha=0.08)
-ax.axvspan(0.7, 1.0, ymin=0.25, ymax=1.0, alpha=0.08)
+# Sandy Square
+ax.add_patch(
+    Rectangle(
+        (Z_min, Sigma_min),
+        Z_max - Z_min,
+        Sigma_max - Sigma_min,
+        fill=False,
+        linewidth=2
+    )
+)
 
-ax.text(0.15, 0.5, "Dead Zone\n(No Gain)", ha="center", va="center")
-ax.text(0.85, 0.12, "Danger Zone\n(Pressure Cooker)", ha="center", va="center")
-ax.text(0.85, 0.65, "Safe Zone\n(False Freedom)", ha="center", va="center")
-
-# Gate-product contours
+# Gate contours
 Zg = np.linspace(0.01, 0.99, 200)
 Sg = np.linspace(0.01, 0.99, 200)
 ZZ, SS = np.meshgrid(Zg, Sg)
 Gg = (1 - ZZ) * SS
-
-contours = ax.contour(
-    ZZ, SS, Gg,
-    levels=[0.02, 0.05, 0.10],
-    linestyles="dashed"
-)
-ax.clabel(contours, inline=True, fontsize=8)
-
-# Sandy Square (Phase II manifold)
-Z_min, Z_max = 0.30, 0.90
-Sigma_min, Sigma_max = 0.15, 0.85
-
-square = Rectangle(
-    (Z_min, Sigma_min),
-    Z_max - Z_min,
-    Sigma_max - Sigma_min,
-    fill=False,
-    edgecolor="black",
-    linewidth=2
-)
-ax.add_patch(square)
-
-ax.text(
-    (Z_min + Z_max) / 2,
-    Sigma_max + 0.03,
-    "Phase II: Sandy Square (False Freedom)",
-    ha="center",
-    va="bottom",
-    fontsize=10
-)
+ax.contour(ZZ, SS, Gg, levels=[0.02, 0.05, 0.1], linestyles="dashed")
 
 # Manual point
-ax.scatter(Z_manual, Sigma_manual, s=120, zorder=5)
+ax.scatter(Z_manual, Sigma_manual, s=120)
 
 ax.set_xlim(0, 1)
 ax.set_ylim(0, 1)
-ax.set_xlabel("Trap Strength Z (Confinement)")
-ax.set_ylabel("Entropy Export Σ")
-ax.set_title("Sandy’s Law Z–Σ Operating Space")
-
+ax.set_xlabel("Z (Confinement)")
+ax.set_ylabel("Σ (Entropy Export)")
+ax.set_title("Sandy Square (Phase II Manifold)")
 st.pyplot(fig)
 
 # =========================================================
-# Paste-in Fusion Data Section (canonical)
+# Paste-in Fusion Data
 # =========================================================
 st.markdown("---")
-st.subheader("Paste Fusion Data (CSV / Google Sheets)")
+st.subheader("Paste Fusion Data (CSV)")
 
 st.markdown(
-    "**Required columns:**  \n"
-    "`time, H98y2, P_rad, P_input, f_ELM, DeltaW_ELM`  \n\n"
-    "**Optional:**  \n"
-    "`tau_E` (informational only)"
+    "**Required:** `time, H98y2, P_rad, P_input, f_ELM, DeltaW_ELM`  \n"
+    "**Optional:** `tau_E`"
 )
 
 csv_text = st.text_area(
@@ -162,18 +119,18 @@ csv_text = st.text_area(
     )
 )
 
+# =========================================================
+# Data processing + Phase-0 detection
+# =========================================================
 if csv_text.strip() and not use_manual:
     try:
         df = pd.read_csv(io.StringIO(csv_text))
 
-        required_cols = {"time", "H98y2", "P_rad", "P_input", "f_ELM", "DeltaW_ELM"}
-        if not required_cols.issubset(df.columns):
-            st.error(
-                "Missing required columns: "
-                + ", ".join(required_cols - set(df.columns))
-            )
+        required = {"time", "H98y2", "P_rad", "P_input", "f_ELM", "DeltaW_ELM"}
+        if not required.issubset(df.columns):
+            st.error("Missing required columns.")
         else:
-            # Compute proxies
+            # --- Z and Σ proxies ---
             Z_proxy = (df["H98y2"] - df["H98y2"].min()) / (
                 df["H98y2"].max() - df["H98y2"].min() + 1e-6
             )
@@ -186,40 +143,82 @@ if csv_text.strip() and not use_manual:
 
             G_series = (1 - Z_proxy) * Sigma_proxy
 
-            # Trajectory with square overlay
+            # =================================================
+            # PHASE-0 METRICS
+            # =================================================
+            distances = np.vstack([
+                Z_proxy - Z_min,
+                Z_max - Z_proxy,
+                Sigma_proxy - Sigma_min,
+                Sigma_max - Sigma_proxy
+            ])
+
+            d_min = np.min(distances, axis=0)
+
+            # Gate Product slope
+            dG_dt = np.gradient(G_series)
+
+            # Thresholds (conservative defaults)
+            d_crit = 0.05
+            dG_crit = np.percentile(dG_dt, 90)
+
+            # Phase-0 flags
+            proximity_flag = d_min < d_crit
+            pressure_flag = dG_dt > dG_crit
+
+            phase0_flag = proximity_flag | pressure_flag
+
+            # =================================================
+            # Visuals
+            # =================================================
+            st.subheader("Trajectory in Z–Σ Space (with Sandy Square)")
+
             fig2, ax2 = plt.subplots(figsize=(8, 6))
-            ax2.plot(Z_proxy, Sigma_proxy, marker="o", lw=2)
+            ax2.plot(Z_proxy, Sigma_proxy, marker="o")
             ax2.add_patch(
                 Rectangle(
                     (Z_min, Sigma_min),
                     Z_max - Z_min,
                     Sigma_max - Sigma_min,
                     fill=False,
-                    edgecolor="black",
                     linewidth=2
                 )
             )
             ax2.set_xlim(0, 1)
             ax2.set_ylim(0, 1)
-            ax2.set_xlabel("Z proxy (normalized H98y2)")
-            ax2.set_ylabel("Σ proxy (normalized entropy export)")
-            ax2.set_title("Trajectory in Z–Σ Space (with Sandy Square)")
+            ax2.set_xlabel("Z proxy")
+            ax2.set_ylabel("Σ proxy")
             st.pyplot(fig2)
 
             st.subheader("Gate Product Over Time")
             st.line_chart(G_series)
 
-            st.success("Fusion data successfully parsed and mapped.")
+            # =================================================
+            # Phase-0 Status Panel
+            # =================================================
+            st.subheader("Phase-0 Early Warning Status")
+
+            if phase0_flag.any():
+                st.warning(
+                    f"Phase-0 detected in {phase0_flag.sum()} samples. "
+                    "System is losing safe degrees of freedom."
+                )
+            else:
+                st.success("No Phase-0 detected. System remains safely inside the Sandy Square.")
+
+            # Metrics
+            m1, m2 = st.columns(2)
+            m1.metric("Min distance to wall", f"{d_min.min():.3f}")
+            m2.metric("Max dG/dt", f"{dG_dt.max():.4f}")
 
     except Exception as e:
-        st.error(f"Error parsing CSV data: {e}")
+        st.error(f"Error parsing data: {e}")
 
 # =========================================================
 # Footer
 # =========================================================
 st.markdown("---")
 st.caption(
-    "Sandy’s Law does not replace domain physics. "
-    "It explains why control strategies succeed or fail by tracking "
-    "the balance between confinement (Z) and escape (Σ)."
+    "Phase-0 indicates loss of safe degrees of freedom prior to physical failure. "
+    "Sandy’s Law provides early warning through geometry, not prediction."
 )
