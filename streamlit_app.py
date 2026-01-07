@@ -125,11 +125,92 @@ ax.set_title("Sandy’s Law Z–Σ Operating Space")
 st.pyplot(fig)
 
 # =========================================================
-# Paste-in Fusion Data Section (Primary Input)
+# Paste-in Fusion Data Section
 # =========================================================
 st.markdown("---")
 st.subheader("Paste Fusion Data (Google Sheets / CSV)")
 
 st.markdown(
-    """
-**Recommended format (Fusion-Native):**
+    "**Recommended format (Fusion-Native):**  \n"
+    "`time,H98y2,tau_E,P_rad,P_input,f_ELM,DeltaW_ELM`  \n"
+    "Paste directly from Google Sheets. Use numeric values only."
+)
+
+csv_text = st.text_area(
+    "Paste CSV data here",
+    height=220,
+    placeholder=(
+        "time,H98y2,tau_E,P_rad,P_input,f_ELM,DeltaW_ELM\n"
+        "0.0,1.05,0.120,5.2,25.0,20,0.050\n"
+        "0.1,1.07,0.122,5.5,25.0,22,0.045\n"
+        "0.2,1.10,0.125,5.9,25.0,25,0.040\n"
+    )
+)
+
+if csv_text.strip() and not use_manual:
+    try:
+        df = pd.read_csv(io.StringIO(csv_text))
+
+        required_cols = {
+            "time", "H98y2", "P_rad", "P_input", "f_ELM", "DeltaW_ELM"
+        }
+
+        if not required_cols.issubset(df.columns):
+            st.error(
+                "Missing required columns: "
+                + ", ".join(required_cols - set(df.columns))
+            )
+        else:
+            # -----------------------------
+            # Compute Sandy proxies
+            # -----------------------------
+            Z_proxy = (df["H98y2"] - df["H98y2"].min()) / (
+                df["H98y2"].max() - df["H98y2"].min() + 1e-6
+            )
+
+            f_rad = df["P_rad"] / df["P_input"]
+
+            Sigma_raw = (
+                0.5 * f_rad
+                + 0.4 * df["f_ELM"]
+                - 0.3 * df["DeltaW_ELM"]
+            )
+
+            Sigma_proxy = (Sigma_raw - Sigma_raw.min()) / (
+                Sigma_raw.max() - Sigma_raw.min() + 1e-6
+            )
+
+            G_series = (1 - Z_proxy) * Sigma_proxy
+
+            # -----------------------------
+            # Trajectory plot
+            # -----------------------------
+            fig2, ax2 = plt.subplots(figsize=(8, 6))
+            ax2.plot(Z_proxy, Sigma_proxy, marker="o", lw=2)
+            ax2.set_xlabel("Z proxy (normalized H98y2)")
+            ax2.set_ylabel("Σ proxy (normalized entropy export)")
+            ax2.set_title("Trajectory in Z–Σ Space")
+            st.pyplot(fig2)
+
+            # -----------------------------
+            # Gate Product time series
+            # -----------------------------
+            st.subheader("Gate Product Over Time")
+            st.line_chart(G_series)
+
+            st.success(
+                "Fusion data successfully parsed and mapped into Sandy’s Law space."
+            )
+
+    except Exception as e:
+        st.error(f"Error parsing CSV data: {e}")
+
+# =========================================================
+# Footer
+# =========================================================
+st.markdown("---")
+st.caption(
+    "Sandy’s Law does not replace domain physics. "
+    "It explains why control strategies succeed or fail by tracking "
+    "the balance between confinement (Z) and escape (Σ)."
+)
