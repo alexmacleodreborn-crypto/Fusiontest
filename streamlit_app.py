@@ -2,6 +2,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import io
 
 # =========================================================
@@ -25,11 +26,7 @@ st.sidebar.header("System Controls")
 
 system_type = st.sidebar.selectbox(
     "System Type",
-    [
-        "Fusion (Tokamak)",
-        "Stellar System",
-        "Generic Energy System"
-    ]
+    ["Fusion (Tokamak)", "Stellar System", "Generic Energy System"]
 )
 
 Z_manual = st.sidebar.slider(
@@ -70,31 +67,25 @@ if Z_manual < 0.3:
     message = "Low confinement. Energy escapes freely. No sustained structure."
 elif Z_manual > 0.7 and Sigma_manual < 0.15:
     phase = "Danger Zone (Phase III Risk)"
-    message = (
-        "High confinement with insufficient entropy export. "
-        "Stress accumulation likely."
-    )
+    message = "High confinement with insufficient entropy export. Stress accumulation likely."
 else:
     phase = "Safe Zone (Phase II – False Freedom)"
-    message = (
-        "High confinement with controlled entropy flow. "
-        "Stable operation without stress buildup."
-    )
+    message = "High confinement with controlled entropy flow. Stable operation without stress buildup."
 
 st.markdown(f"**Current Phase:** `{phase}`")
 st.write(message)
 
 # =========================================================
-# Z–Σ Operating Map
+# Z–Σ Operating Map (with Sandy Square)
 # =========================================================
 st.subheader("Z–Σ Operating Map")
 
 fig, ax = plt.subplots(figsize=(8, 6))
 
-# Zone shading
-ax.axvspan(0.0, 0.3, alpha=0.1)
-ax.axvspan(0.7, 1.0, ymin=0.0, ymax=0.25, alpha=0.1)
-ax.axvspan(0.7, 1.0, ymin=0.25, ymax=1.0, alpha=0.1)
+# Background zones
+ax.axvspan(0.0, 0.3, alpha=0.08)
+ax.axvspan(0.7, 1.0, ymin=0.0, ymax=0.25, alpha=0.08)
+ax.axvspan(0.7, 1.0, ymin=0.25, ymax=1.0, alpha=0.08)
 
 ax.text(0.15, 0.5, "Dead Zone\n(No Gain)", ha="center", va="center")
 ax.text(0.85, 0.12, "Danger Zone\n(Pressure Cooker)", ha="center", va="center")
@@ -113,6 +104,29 @@ contours = ax.contour(
 )
 ax.clabel(contours, inline=True, fontsize=8)
 
+# Sandy Square (Phase II manifold)
+Z_min, Z_max = 0.30, 0.90
+Sigma_min, Sigma_max = 0.15, 0.85
+
+square = Rectangle(
+    (Z_min, Sigma_min),
+    Z_max - Z_min,
+    Sigma_max - Sigma_min,
+    fill=False,
+    edgecolor="black",
+    linewidth=2
+)
+ax.add_patch(square)
+
+ax.text(
+    (Z_min + Z_max) / 2,
+    Sigma_max + 0.03,
+    "Phase II: Sandy Square (False Freedom)",
+    ha="center",
+    va="bottom",
+    fontsize=10
+)
+
 # Manual point
 ax.scatter(Z_manual, Sigma_manual, s=120, zorder=5)
 
@@ -125,7 +139,7 @@ ax.set_title("Sandy’s Law Z–Σ Operating Space")
 st.pyplot(fig)
 
 # =========================================================
-# Paste-in Fusion Data Section (CANONICAL INPUT)
+# Paste-in Fusion Data Section (canonical)
 # =========================================================
 st.markdown("---")
 st.subheader("Paste Fusion Data (CSV / Google Sheets)")
@@ -134,7 +148,7 @@ st.markdown(
     "**Required columns:**  \n"
     "`time, H98y2, P_rad, P_input, f_ELM, DeltaW_ELM`  \n\n"
     "**Optional:**  \n"
-    "`tau_E` (not required; informational only)"
+    "`tau_E` (informational only)"
 )
 
 csv_text = st.text_area(
@@ -152,56 +166,50 @@ if csv_text.strip() and not use_manual:
     try:
         df = pd.read_csv(io.StringIO(csv_text))
 
-        required_cols = {
-            "time", "H98y2", "P_rad", "P_input", "f_ELM", "DeltaW_ELM"
-        }
-
+        required_cols = {"time", "H98y2", "P_rad", "P_input", "f_ELM", "DeltaW_ELM"}
         if not required_cols.issubset(df.columns):
             st.error(
                 "Missing required columns: "
                 + ", ".join(required_cols - set(df.columns))
             )
         else:
-            # -------------------------------------------------
-            # Compute Sandy’s Law proxies
-            # -------------------------------------------------
+            # Compute proxies
             Z_proxy = (df["H98y2"] - df["H98y2"].min()) / (
                 df["H98y2"].max() - df["H98y2"].min() + 1e-6
             )
 
             f_rad = df["P_rad"] / df["P_input"]
-
-            Sigma_raw = (
-                0.5 * f_rad
-                + 0.4 * df["f_ELM"]
-                - 0.3 * df["DeltaW_ELM"]
-            )
-
+            Sigma_raw = 0.5 * f_rad + 0.4 * df["f_ELM"] - 0.3 * df["DeltaW_ELM"]
             Sigma_proxy = (Sigma_raw - Sigma_raw.min()) / (
                 Sigma_raw.max() - Sigma_raw.min() + 1e-6
             )
 
             G_series = (1 - Z_proxy) * Sigma_proxy
 
-            # -------------------------------------------------
-            # Trajectory plot
-            # -------------------------------------------------
+            # Trajectory with square overlay
             fig2, ax2 = plt.subplots(figsize=(8, 6))
             ax2.plot(Z_proxy, Sigma_proxy, marker="o", lw=2)
+            ax2.add_patch(
+                Rectangle(
+                    (Z_min, Sigma_min),
+                    Z_max - Z_min,
+                    Sigma_max - Sigma_min,
+                    fill=False,
+                    edgecolor="black",
+                    linewidth=2
+                )
+            )
+            ax2.set_xlim(0, 1)
+            ax2.set_ylim(0, 1)
             ax2.set_xlabel("Z proxy (normalized H98y2)")
             ax2.set_ylabel("Σ proxy (normalized entropy export)")
-            ax2.set_title("Trajectory in Z–Σ Space")
+            ax2.set_title("Trajectory in Z–Σ Space (with Sandy Square)")
             st.pyplot(fig2)
 
-            # -------------------------------------------------
-            # Gate Product time series
-            # -------------------------------------------------
             st.subheader("Gate Product Over Time")
             st.line_chart(G_series)
 
-            st.success(
-                "Fusion data successfully parsed and mapped into Sandy’s Law space."
-            )
+            st.success("Fusion data successfully parsed and mapped.")
 
     except Exception as e:
         st.error(f"Error parsing CSV data: {e}")
